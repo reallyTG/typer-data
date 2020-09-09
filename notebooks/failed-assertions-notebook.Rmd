@@ -1,0 +1,52 @@
+---
+title: "Failed Assertions R Notebook"
+output: html_notebook
+---
+
+Data exploration for assertions-failed.
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# df <- read_csv("/mnt/arraySSD/alexi/oopsla_analysis_data/all_assertions.csv")
+df <- read_csv("../data/all-assertions-revdeps.csv")
+```
+
+Get all the failed assertions:
+
+```{r}
+df <- df %>% filter(!assertion_status)
+```
+
+Let's break some down, first, look at dbl[] being passed to data.frames:
+
+
+```{r}
+df %>% filter(actual_type == "double[]", expected_type == "class<`data.frame`>") %>% unique
+```
+
+```
+> DiceKriging:::branin
+function (x) 
+{
+    x1 <- x[1] * 15 - 5
+    x2 <- x[2] * 15
+    (x2 - 5/(4 * pi^2) * (x1^2) + 5/pi * x1 - 6)^2 + 10 * (1 - 
+        1/(8 * pi)) * cos(x1) + 10
+}
+```
+
+Example calls that gave us a `data.frame` type for `x`:
+
+```{r}
+design.fact <- expand.grid(x1=seq(0,1,length=4), x2=seq(0,1,length=4))
+# apply(design.fact, 1, branin)
+```
+
+```{r}
+
+```
+
+

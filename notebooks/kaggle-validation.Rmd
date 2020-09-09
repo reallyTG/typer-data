@@ -1,0 +1,119 @@
+---
+title: "Kaggle R Notebook"
+output: html_notebook
+---
+
+Stuff for convenience.
+
+```{r}
+PRIM_TYPES <- c("integer", "double", "character", "logical", "complex", "raw")
+
+```
+
+Data exploration of Kaggle run.
+
+```{r}
+library(tidyverse)
+```
+
+Load data.
+
+```{r}
+# df <- read_csv("/mnt/nvme0/R/project-typeR/artifact/typeR/kaggle/kaggle-run/assertions-all.csv")
+df <- read_csv("../data/all-assertions-kaggle.csv")
+
+df_failed <- df %>% filter(!assertion_status)
+
+df_failed_no_undef <- df_failed %>% filter(expected_type != "<undefined>")
+```
+
+How many failed assertions were there?
+
+```{r}
+perc_failed <- (df %>% filter(!assertion_status) %>% nrow) / (df %>% nrow)
+
+perc_failed
+```
+
+This is in line with what we found for the reverse dependency test.
+What if we look at the same breakdowns that we did with the failed assertions for the rev deps test?
+
+```{r}
+df_failed_assertions_summarized <- df_failed_no_undef %>% group_by(expected_type, actual_type) %>% summarize(num = n()) %>% arrange(-num) %>% ungroup
+
+# First one:
+df_failed_assertions_summarized %>% slice(1)
+```
+
+```{r}
+df_failed %>% filter(expected_type == "class<`matrix`>", actual_type == "class<data.table, data.frame>") %>% unique
+```
+
+One example: we have matrices being passed to data.frames.
+Let's look at the function, in this case, `class::knn`:
+
+```{r}
+# > class::knn
+# function (train, test, cl, k = 1, l = 0, prob = FALSE, use.all = TRUE) 
+# {
+#     train <- as.matrix(train)
+#     if (is.null(dim(test))) 
+#         dim(test) <- c(1, length(test))
+#     test <- as.matrix(test)
+#     ...
+# }
+```
+
+We see that the first two arguments (which are the ones with failing contracts) are immediately converted to matrices, though this function was only ever tested with matrix arguments.
+A better type here would be one that's "convertible to a matrix".
+
+More:
+
+```{r}
+df_failed %>% filter(expected_type == "^character[]", actual_type == "class<factor>") %>% unique 
+```
+
+The two functions, `stringr::str_detect` and `stringr::str_extract` were tested with characters only, but they do also operate on factors, likely because they ignore the class of the passed value.
+
+More:
+
+```{r}
+df_failed %>% filter(expected_type == "list<integer[]> | list<list<any>> | list<class<`function`>> | list<class<`function`> | class<`function`, `purrr_function_compose`>> | list<class<`function`> | class<`formula`>> | list<class<`function`> | class<`function`, `rlang_lambda_function`>> | list<class<`formula`>> | double[] | list<character | double> | list<class<`lm`>> | list<class<`data.frame`>> | class<`data.frame`, `tbl`, `tbl_df`> | class<`data.frame`> | list<class<`formula`, `quosure`>>", actual_type == "character[]") %>% unique 
+```
+
+This is probably a bug?
+
+```{r}
+df_failed %>% filter(expected_type == "double[]", actual_type == "integer[]") %>% unique 
+```
+
+```{r}
+df_failed %>% filter(expected_type == "list<integer[]> | list<list<any>> | list<class<`function`>> | list<class<`function`> | class<`function`, `purrr_function_compose`>> | list<class<`function`> | class<`formula`>> | list<class<`function`> | class<`function`, `rlang_lambda_function`>> | list<class<`formula`>> | double[] | list<character | double> | list<class<`lm`>> | list<class<`data.frame`>> | class<`data.frame`, `tbl`, `tbl_df`> | class<`data.frame`> | list<class<`formula`, `quosure`>>", actual_type == "character[]") %>% unique 
+```
+
+This reveals `purrr::map`, which does work on character[]-types values.
+However, it was only ever tested with list-typed values.
+
+Ok. How often are we passing vectors to scalars?
+
+```{r}
+df_failed_no_undef %>% filter(expected_type %in% c(PRIM_TYPES, paste0("^", PRIM_TYPES)), actual_type %in% c(paste0(PRIM_TYPES, "[]"), paste0("^", PRIM_TYPES, "[]"))) %>% select(package_name, function_name, parameter_position, actual_type, expected_type) %>% unique
+```
+
+`lattice:::trellis.device` and `lattice:::canonical.theme` look like errors in Kaggle. `readr:::output_column` is a multi method, and only one of the implementations were probably tried (`readr:::output_column.default`), whereas this probably tests `readr:::output_column.double`.
+
+What about things that expect classes?
+
+```{r}
+df_failed_no_undef %>% filter(str_detect(expected_type, "class")) %>% select(package_name, function_name, parameter_position, actual_type, expected_type) %>% unique
+```
+
+`e1071:::tune`'s `train.y` argument can take a data.frame, and the function converts it if passed, it's just that it wasnt tested.
+`dplyr:::if_else` should be any typed in 2nd and 3rd arg.
+`dplyr:::inner_join` is a limitation of our approach (gets a data.frame, asks for a data.frame+tbl+tbl_df).
+
+```{r}
+
+```
+
+
